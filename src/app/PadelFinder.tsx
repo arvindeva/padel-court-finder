@@ -151,8 +151,8 @@ export default function PadelFinder() {
               : d
           )
         );
-      } catch (e) {
-        if ((e as any)?.name === 'AbortError') {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
           // Stop loop silently
           break;
         }
@@ -161,7 +161,7 @@ export default function PadelFinder() {
 
       try {
         await delay(INTER_DAY_DELAY_MS, ctrl.signal);
-      } catch (e) {
+      } catch {
         break; // aborted
       }
     }

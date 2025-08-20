@@ -15,6 +15,36 @@ function isValidDateStr(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
+type UpstreamSlot = {
+  is_available?: number | string | boolean;
+  available?: number | string | boolean;
+  start_time?: string;
+  time?: string;
+};
+
+type UpstreamField = {
+  field_name?: string;
+  name?: string;
+  slots?: unknown;
+};
+
+function isUpstreamField(x: unknown): x is UpstreamField {
+  return typeof x === "object" && x !== null;
+}
+
+function extractFields(resp: unknown): UpstreamField[] {
+  if (resp && typeof resp === "object") {
+    const r = resp as { fields?: unknown; data?: { fields?: unknown } };
+    const candidate = Array.isArray(r.fields)
+      ? r.fields
+      : Array.isArray(r.data?.fields)
+      ? (r.data!.fields as unknown[])
+      : [];
+    return candidate.filter(isUpstreamField) as UpstreamField[];
+  }
+  return [];
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -52,25 +82,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Upstream error: ${res.status}` }, { status: res.status });
     }
 
-    const json = await res.json().catch(() => ({} as any));
+    const json: unknown = await res.json().catch(() => ({} as Record<string, unknown>));
 
     // Tolerant extraction of fields
-    const fields: any[] = Array.isArray((json as any).fields)
-      ? (json as any).fields
-      : Array.isArray((json as any)?.data?.fields)
-      ? (json as any).data.fields
-      : [];
+    const fields: UpstreamField[] = extractFields(json);
 
     const courts: CourtTimes[] = fields
       .map((f) => {
-        const fieldName: string = f?.field_name ?? f?.name ?? "Court";
-        const slots: any[] = Array.isArray(f?.slots) ? f.slots : [];
+        const fieldName: string = f.field_name ?? f.name ?? "Court";
+        const slots: UpstreamSlot[] = Array.isArray(f.slots) ? (f.slots as UpstreamSlot[]) : [];
         const times: string[] = slots
           .filter((s) => {
-            const v = (s?.is_available ?? s?.available ?? 0) as any;
+            const v = s.is_available ?? s.available ?? 0;
             return v === 1 || v === "1" || v === true;
           })
-          .map((s) => String(s?.start_time ?? s?.time ?? "").slice(0, 5))
+          .map((s) => String(s.start_time ?? s.time ?? "").slice(0, 5))
           .filter(Boolean);
         return { court: fieldName, times };
       })
@@ -81,7 +107,7 @@ export async function POST(req: NextRequest) {
     cache.set(key, { data: payload, expiresAt: now + TTL_MS });
 
     return NextResponse.json(payload, { status: 200 });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Unexpected server error" }, { status: 500 });
   }
 }
